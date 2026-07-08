@@ -1,15 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, Image, TextInput } from 'react-native';
-import CustomInput from './components/CustomInput';
-import CustomButton from './components/CustomButton';
-import ProductCard from './components/ProductCard';
 
+// --- KOMPONEN INPUT LANGSUNG ---
+function LocalInput({ label, placeholder, value, onChangeText, error, ...props }) {
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <Text style={{ fontSize: 14, fontWeight: '600', color: '#2c3e50', marginBottom: 6 }}>{label}</Text>
+      <TextInput
+        style={{
+          height: 44,
+          backgroundColor: '#f8f9fa',
+          borderWidth: 1,
+          borderColor: error ? '#e74c3c' : '#dcdde1',
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          fontSize: 14,
+        }}
+        placeholder={placeholder}
+        value={value}
+        onChangeText={onChangeText}
+        {...props}
+      />
+      {error && <Text style={{ fontSize: 12, color: '#e74c3c', marginTop: 4 }}>{error}</Text>}
+    </View>
+  );
+}
+
+// --- KOMPONEN TOMBOL LANGSUNG ---
+function LocalButton({ title, onPress }) {
+  return (
+    <TouchableOpacity 
+      style={{
+        backgroundColor: '#ee4d2d',
+        height: 48,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 12,
+      }}
+      onPress={onPress}
+    >
+      <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>{title}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// --- KOMPONEN UTAMA ---
 export default function UasPrakPemmob() {
-  // State Navigasi & Auth
-  const [currentScreen, setCurrentScreen] = useState('Login'); // Login, Home, Detail
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [currentTab, setCurrentTab] = useState('Home'); // Home, Wishlist, Profile
+  // State Navigasi Utama: 'Login', 'MainApp', atau 'Detail'
+  const [currentScreen, setCurrentScreen] = useState('Login'); 
+  const [currentTab, setCurrentTab] = useState('Home'); // Sub-tab untuk MainApp: 'Home', 'Cart', 'Profile'
+
+  // State Keranjang Belanja & Metode Pembayaran
+  const [cartItems, setCartItems] = useState([]);
+  const [selectedPayment, setSelectedPayment] = useState('COD'); 
+  const [showPaymentSelection, setShowPaymentSelection] = useState(false);
 
   // State Form Login
   const [email, setEmail] = useState('');
@@ -17,14 +62,30 @@ export default function UasPrakPemmob() {
   const [name, setName] = useState('');
   const [errors, setErrors] = useState({});
 
-  // State API & Produk
+  // State Data API & Search
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Validasi Form & Handle Login
+  // Format ke Rupiah
+  const toRupiah = (usd) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0
+    }).format(usd * 15000);
+  };
+
+  // Hitung Total Belanja
+  const getTotalPrice = () => {
+    const totalUsd = cartItems.reduce((a, c) => a + c.price * c.qty, 0);
+    return toRupiah(totalUsd);
+  };
+
+  // Aksi Login Sukses
   const handleLogin = () => {
     let localErrors = {};
     const emailRegex = /\S+@\S+\.\S+/;
@@ -37,13 +98,13 @@ export default function UasPrakPemmob() {
       setErrors(localErrors);
     } else {
       setErrors({});
-      setIsLoggedIn(true);
-      setCurrentScreen('Home');
+      setCurrentScreen('MainApp'); // Pindah ke halaman utama aplikasi
+      setCurrentTab('Home');
       fetchProducts();
     }
   };
 
-  // Fetch Data dari API DummyJSON
+  // Mengambil data dari API
   const fetchProducts = async () => {
     setLoading(true);
     setApiError(null);
@@ -53,13 +114,13 @@ export default function UasPrakPemmob() {
       setProducts(data.products);
       setFilteredProducts(data.products);
     } catch (err) {
-      setApiError('Gagal memuat data produk. Periksa koneksi internet Anda.');
+      setApiError('Gagal memuat data produk.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Real-time Search Filter berdasarkan judul atau kategori
+  // Filter Pencarian
   useEffect(() => {
     const filtered = products.filter(product =>
       product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -68,138 +129,269 @@ export default function UasPrakPemmob() {
     setFilteredProducts(filtered);
   }, [searchQuery, products]);
 
-  // --- SCREEN 1: LOGIN SCREEN ---
-  const renderLoginScreen = () => (
-    <View style={styles.authContainer}>
-      <View style={styles.authCard}>
-        <Text style={styles.authTitle}>KampusMarket</Text>
-        <Text style={styles.authSubtitle}>Marketplace Jual-Beli Mahasiswa</Text>
-        
-        <CustomInput label="Nama Lengkap" placeholder="Masukkan nama" value={name} onChangeText={setName} error={errors.name} />
-        <CustomInput label="Email" placeholder="mahasiswa@uir.ac.id" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" error={errors.email} />
-        <CustomInput label="Password" placeholder="Minimal 6 karakter" value={password} onChangeText={setPassword} secureTextEntry error={errors.password} />
-        
-        <CustomButton title="Masuk Aplikasi" onPress={handleLogin} />
-      </View>
-    </View>
-  );
+  // Tambah barang ke keranjang
+  const addToCart = (product, buyNow = false) => {
+    const exist = cartItems.find((x) => x.id === product.id);
+    if (exist) {
+      setCartItems(cartItems.map((x) => x.id === product.id ? { ...exist, qty: exist.qty + 1 } : x));
+    } else {
+      setCartItems([...cartItems, { ...product, qty: 1 }]);
+    }
+    
+    if (buyNow) {
+      setCurrentScreen('MainApp');
+      setCurrentTab('Cart');
+      setShowPaymentSelection(true);
+    } else {
+      alert(`${product.title} berhasil dimasukkan ke keranjang!`);
+    }
+  };
 
-  // --- SCREEN 2: DETAIL PRODUK ---
-  const renderDetailScreen = () => {
+  // Konfirmasi Buat Pesanan
+  const handleConfirmOrder = () => {
+    alert(`🎉 Pesanan Berhasil Dibuat!\n\nMetode Pembayaran: ${selectedPayment}\nTotal Tagihan: ${getTotalPrice()}\n\nTerima kasih telah berbelanja.`);
+    setCartItems([]);
+    setShowPaymentSelection(false);
+    setCurrentTab('Home');
+  };
+
+  // Desain Kartu Produk Lokal
+  const renderProductCardLocal = (item, onPress) => {
+    return (
+      <TouchableOpacity 
+        style={{
+          flex: 1,
+          backgroundColor: '#ffffff',
+          borderRadius: 12,
+          margin: 8,
+          padding: 8,
+          borderWidth: 1,
+          borderColor: '#f1f2f6',
+          maxWidth: '48%', 
+          minWidth: '45%',
+        }} 
+        onPress={onPress}
+      >
+        <Image source={{ uri: item.thumbnail }} style={{ width: '100%', height: 120, backgroundColor: '#f8f9fa', borderRadius: 8, marginBottom: 8 }} resizeMode="contain" />
+        <View style={{ paddingHorizontal: 4 }}>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#2c3e50', height: 36 }} numberOfLines={2}>{item.title}</Text>
+          <Text style={{ fontSize: 11, color: '#7f8c8d', textTransform: 'uppercase', marginVertical: 4 }}>{item.category}</Text>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#ee4d2d' }}>{toRupiah(item.price)}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // 1. TAMPILAN HALAMAN LOGIN
+  if (currentScreen === 'Login') {
+    return (
+      <View style={styles.authContainer}>
+        <View style={styles.authCard}>
+          <Text style={styles.authTitle}>KampusMarket</Text>
+          <Text style={styles.authSubtitle}>Marketplace Jual-Beli Mahasiswa</Text>
+          
+          <LocalInput label="Nama Lengkap" placeholder="Masukkan nama" value={name} onChangeText={setName} error={errors.name} />
+          <LocalInput label="Email" placeholder="mahasiswa@uir.ac.id" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" error={errors.email} />
+          <LocalInput label="Password" placeholder="Minimal 6 karakter" value={password} onChangeText={setPassword} secureTextEntry error={errors.password} />
+          
+          <LocalButton title="Masuk Aplikasi" onPress={handleLogin} />
+        </View>
+      </View>
+    );
+  }
+
+  // 2. TAMPILAN HALAMAN DETAIL PRODUK
+  if (currentScreen === 'Detail') {
     if (!selectedProduct) return null;
     return (
       <View style={styles.mainContainer}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setCurrentScreen('Home')}>
+          <TouchableOpacity onPress={() => setCurrentScreen('MainApp')}>
             <Text style={styles.backButton}>← Kembali</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Detail Produk</Text>
           <View style={{ width: 60 }} />
         </View>
         <ScrollView style={styles.contentArea}>
-          <Image source={{ uri: selectedProduct.thumbnail }} style={styles.detailImage} />
+          <Image source={{ uri: selectedProduct.thumbnail }} style={styles.detailImage} resizeMode="contain" />
           <View style={styles.detailInfoBox}>
-            <Text style={styles.detailCategory}>{selectedProduct.category.toUpperCase()}</Text>
+            <Text style={styles.detailPrice}>{toRupiah(selectedProduct.price)}</Text>
             <Text style={styles.detailTitle}>{selectedProduct.title}</Text>
-            <Text style={styles.detailPrice}>${selectedProduct.price}</Text>
+            <Text style={styles.detailCategory}>Kategori: {selectedProduct.category.toUpperCase()}</Text>
+            <View style={styles.divider} />
             <Text style={styles.detailDescTitle}>Deskripsi Produk:</Text>
             <Text style={styles.detailDescription}>{selectedProduct.description}</Text>
           </View>
         </ScrollView>
-      </View>
-    );
-  };
-
-  // --- TAB CONTENT INDIKATOR ---
-  const renderTabContent = () => {
-    if (currentTab === 'Wishlist') {
-      return (
-        <View style={styles.centerContainer}>
-          <Text style={styles.infoText}>Keranjang / Wishlist Anda kosong.</Text>
-        </View>
-      );
-    }
-    if (currentTab === 'Profile') {
-      return (
-        <View style={styles.centerContainer}>
-          <Text style={styles.profileName}>Halo, {name}!</Text>
-          <Text style={styles.profileEmail}>{email}</Text>
-          <TouchableOpacity style={styles.logoutBtn} onPress={() => { setIsLoggedIn(false); setCurrentScreen('Login'); }}>
-            <Text style={styles.logoutText}>Log Out</Text>
+        <View style={styles.shopeeActionBar}>
+          <TouchableOpacity style={styles.addToCartBtn} onPress={() => addToCart(selectedProduct, false)}>
+            <Text style={styles.addToCartText}>+ Keranjang</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.buyNowBtn} onPress={() => addToCart(selectedProduct, true)}>
+            <Text style={styles.buyNowText}>Beli Sekarang</Text>
           </TouchableOpacity>
         </View>
-      );
-    }
-
-    // Default: Tab Home (Katalog Produk)
-    return (
-      <View style={{ flex: 1 }}>
-        <TextInput style={styles.searchBar} placeholder="Cari barang bekas atau kategori..." value={searchQuery} onChangeText={setSearchQuery} />
-        {loading && <ActivityIndicator size="large" color="#2ecc71" style={{ marginTop: 20 }} />}
-        {apiError && (
-          <View style={styles.centerContainer}>
-            <Text style={styles.errorText}>{apiError}</Text>
-            <CustomButton title="Coba Lagi" onPress={fetchProducts} />
-          </View>
-        )}
-        {!loading && !apiError && (
-          <FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => item.id.toString()}
-            numColumns={2}
-            renderItem={({ item }) => (
-              <ProductCard item={item} onPress={() => { setSelectedProduct(item); setCurrentScreen('Detail'); }} />
-            )}
-            ListEmptyComponent={<Text style={styles.emptyText}>Produk tidak ditemukan</Text>}
-            contentContainerStyle={{ paddingBottom: 20 }}
-          />
-        )}
       </View>
     );
-  };
+  }
 
-  // --- MAIN APP WITH TAB NAVIGATION ---
-  const renderMainApp = () => (
+  // 3. TAMPILAN HALAMAN UTAMA (DENGAN NAVIGASI TAB BAWAH)
+  return (
     <View style={styles.mainContainer}>
+      {/* Header Aplikasi */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>KampusMarket</Text>
+        {currentTab === 'Home' && cartItems.length > 0 && (
+          <TouchableOpacity style={styles.cartIconBadge} onPress={() => setCurrentTab('Cart')}>
+            <Text style={styles.badgeText}>🛒 {cartItems.reduce((a, c) => a + c.qty, 0)}</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Konten Berdasarkan Tab yang Aktif */}
       <View style={styles.contentArea}>
-        {renderTabContent()}
+        {currentTab === 'Home' && (
+          <View style={{ flex: 1 }}>
+            <TextInput style={styles.searchBar} placeholder="Cari barang bekas atau kategori..." value={searchQuery} onChangeText={setSearchQuery} />
+            {loading && <ActivityIndicator size="large" color="#ee4d2d" style={{ marginTop: 20 }} />}
+            {apiError && (
+              <View style={styles.centerContainer}>
+                <Text style={styles.errorText}>{apiError}</Text>
+              </View>
+            )}
+            {!loading && !apiError && (
+              <FlatList
+                data={filteredProducts}
+                keyExtractor={(item) => item.id.toString()}
+                numColumns={2}
+                renderItem={({ item }) => renderProductCardLocal(item, () => { setSelectedProduct(item); setCurrentScreen('Detail'); })}
+                ListEmptyComponent={<Text style={styles.emptyText}>Produk tidak ditemukan</Text>}
+                contentContainerStyle={{ paddingBottom: 20 }}
+              />
+            )}
+          </View>
+        )}
+
+        {currentTab === 'Cart' && (
+          <View style={{ flex: 1 }}>
+            {cartItems.length === 0 ? (
+              <View style={styles.centerContainer}>
+                <Text style={styles.infoText}>Keranjang belanja Anda kosong 🛒</Text>
+              </View>
+            ) : (
+              <View style={{ flex: 1 }}>
+                <ScrollView style={{ flex: 1, padding: 8 }}>
+                  {!showPaymentSelection && cartItems.map((item) => (
+                    <View key={item.id} style={styles.cartCard}>
+                      <Image source={{ uri: item.thumbnail }} style={styles.cartItemImage} resizeMode="contain" />
+                      <View style={styles.cartItemInfo}>
+                        <Text style={styles.cartItemTitle} numberOfLines={1}>{item.title}</Text>
+                        <Text style={styles.cartItemPrice}>{toRupiah(item.price)}</Text>
+                        <Text style={styles.cartItemQty}>Jumlah: {item.qty}x</Text>
+                      </View>
+                    </View>
+                  ))}
+
+                  {showPaymentSelection && (
+                    <View style={styles.paymentSection}>
+                      <Text style={styles.paymentSectionTitle}>Pilih Metode Pembayaran</Text>
+                      <Text style={styles.paymentSectionSubtitle}>Silakan pilih jalur pembayaran Anda:</Text>
+
+                      <TouchableOpacity style={[styles.paymentOptionCard, selectedPayment === 'COD' && styles.paymentOptionCardActive]} onPress={() => setSelectedPayment('COD')}>
+                        <Text style={styles.paymentIcon}>💵</Text>
+                        <View style={styles.paymentTextGroup}>
+                          <Text style={styles.paymentName}>Cash on Delivery (COD)</Text>
+                          <Text style={styles.paymentDesc}>Bayar langsung tunai di area kampus UIR</Text>
+                        </View>
+                        <View style={[styles.radioCircle, selectedPayment === 'COD' && styles.radioCircleActive]} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={[styles.paymentOptionCard, selectedPayment === 'QRIS' && styles.paymentOptionCardActive]} onPress={() => setSelectedPayment('QRIS')}>
+                        <Text style={styles.paymentIcon}>📱</Text>
+                        <View style={styles.paymentTextGroup}>
+                          <Text style={styles.paymentName}>QRIS / E-Wallet</Text>
+                          <Text style={styles.paymentDesc}>Scan otomatis via GoPay, OVO, Dana, LinkAja</Text>
+                        </View>
+                        <View style={[styles.radioCircle, selectedPayment === 'QRIS' && styles.radioCircleActive]} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={[styles.paymentOptionCard, selectedPayment === 'M-Banking' && styles.paymentOptionCardActive]} onPress={() => setSelectedPayment('M-Banking')}>
+                        <Text style={styles.paymentIcon}>🏦</Text>
+                        <View style={styles.paymentTextGroup}>
+                          <Text style={styles.paymentName}>Transfer M-Banking</Text>
+                          <Text style={styles.paymentDesc}>Transfer via Bank BRI, BCA, BNI, Mandiri, dll</Text>
+                        </View>
+                        <View style={[styles.radioCircle, selectedPayment === 'M-Banking' && styles.radioCircleActive]} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={styles.cancelPaymentBtn} onPress={() => setShowPaymentSelection(false)}>
+                        <Text style={styles.cancelPaymentText}>← Ubah Item Keranjang</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </ScrollView>
+                
+                <View style={styles.checkoutFooter}>
+                  <View style={styles.totalContainer}>
+                    <Text style={styles.totalLabel}>Total Tagihan:</Text>
+                    <Text style={styles.totalPriceText}>{getTotalPrice()}</Text>
+                  </View>
+                  {showPaymentSelection ? (
+                    <TouchableOpacity style={styles.checkoutBtn} onPress={handleConfirmOrder}>
+                      <Text style={styles.checkoutBtnText}>Buat Pesanan</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.checkoutBtn} onPress={() => setShowPaymentSelection(true)}>
+                      <Text style={styles.checkoutBtnText}>Check Out ({cartItems.reduce((a, c) => a + c.qty, 0)})</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {currentTab === 'Profile' && (
+          <View style={styles.centerContainer}>
+            <Text style={styles.profileName}>Halo, {name}!</Text>
+            <Text style={styles.profileEmail}>{email}</Text>
+            <TouchableOpacity style={styles.logoutBtn} onPress={() => { setCurrentScreen('Login'); setCartItems([]); setShowPaymentSelection(false); }}>
+              <Text style={styles.logoutText}>Log Out</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
-      {/* Bottom Tab Navigation */}
+
+      {/* Tab Navigasi Bawah */}
       <View style={styles.tabBar}>
-        <TouchableOpacity style={[styles.tabItem, currentTab === 'Home' && styles.activeTab]} onPress={() => setCurrentTab('Home')}>
+        <TouchableOpacity style={[styles.tabItem, currentTab === 'Home' && styles.activeTab]} onPress={() => { setCurrentTab('Home'); setShowPaymentSelection(false); }}>
           <Text style={[styles.tabText, currentTab === 'Home' && styles.activeTabText]}>Home</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabItem, currentTab === 'Wishlist' && styles.activeTab]} onPress={() => setCurrentTab('Wishlist')}>
-          <Text style={[styles.tabText, currentTab === 'Wishlist' && styles.activeTabText]}>Wishlist</Text>
+        <TouchableOpacity style={[styles.tabItem, currentTab === 'Cart' && styles.activeTab]} onPress={() => setCurrentTab('Cart')}>
+          <Text style={[styles.tabText, currentTab === 'Cart' && styles.activeTabText]}>Keranjang</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabItem, currentTab === 'Profile' && styles.activeTab]} onPress={() => setCurrentTab('Profile')}>
+        <TouchableOpacity style={[styles.tabItem, currentTab === 'Profile' && styles.activeTab]} onPress={() => { setCurrentTab('Profile'); setShowPaymentSelection(false); }}>
           <Text style={[styles.tabText, currentTab === 'Profile' && styles.activeTabText]}>Profil</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
-
-  // Alur Penentuan Screen Utama
-  if (!isLoggedIn) return renderLoginScreen();
-  if (currentScreen === 'Detail') return renderDetailScreen();
-  return renderMainApp();
 }
 
 const styles = StyleSheet.create({
-  authContainer: { flex: 1, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center' },
-  authCard: { width: '85%', backgroundColor: '#ffffff', borderRadius: 16, padding: 24, elevation: 4 },
-  authTitle: { fontSize: 28, fontWeight: 'bold', color: '#2ecc71', textAlign: 'center' },
+  authContainer: { flex: 1, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center', height: '100vh' },
+  authCard: { width: '85%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 16, padding: 24, boxShadow: '0px 4px 10px rgba(0,0,0,0.1)' },
+  authTitle: { fontSize: 28, fontWeight: 'bold', color: '#ee4d2d', textAlign: 'center' },
   authSubtitle: { fontSize: 13, color: '#7f8c8d', textAlign: 'center', marginBottom: 24 },
-  mainContainer: { flex: 1, backgroundColor: '#f8f9fa' },
+  mainContainer: { flex: 1, backgroundColor: '#f8f9fa', height: '100vh' },
   header: { height: 60, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f1f2f6', paddingTop: 10 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#2c3e50' },
-  backButton: { color: '#2ecc71', fontSize: 16, fontWeight: '600' },
+  cartIconBadge: { backgroundColor: '#fff', padding: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ee4d2d' },
+  badgeText: { fontSize: 12, color: '#ee4d2d', fontWeight: 'bold' },
+  backButton: { color: '#ee4d2d', fontSize: 16, fontWeight: '600' },
   contentArea: { flex: 1, padding: 8 },
   searchBar: { height: 44, backgroundColor: '#fff', borderWidth: 1, borderColor: '#dcdde1', borderRadius: 8, paddingHorizontal: 12, margin: 8, fontSize: 14 },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, minHeight: 300 },
   infoText: { color: '#7f8c8d', fontSize: 16 },
   errorText: { color: '#e74c3c', fontSize: 14, textAlign: 'center', marginBottom: 12 },
   emptyText: { textAlign: 'center', color: '#7f8c8d', marginTop: 20 },
@@ -207,16 +399,53 @@ const styles = StyleSheet.create({
   profileEmail: { fontSize: 14, color: '#7f8c8d', marginTop: 4, marginBottom: 24 },
   logoutBtn: { paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#e74c3c', borderRadius: 8 },
   logoutText: { color: '#fff', fontWeight: 'bold' },
-  detailImage: { width: '100%', height: 250, backgroundColor: '#fff' },
+  
+  detailImage: { width: '100%', height: 300, backgroundColor: '#fff' },
   detailInfoBox: { padding: 16, backgroundColor: '#fff', marginTop: 8, borderRadius: 8 },
-  detailCategory: { color: '#2ecc71', fontWeight: 'bold', fontSize: 12 },
-  detailTitle: { fontSize: 22, fontWeight: 'bold', color: '#2c3e50', marginVertical: 8 },
-  detailPrice: { fontSize: 20, fontWeight: '700', color: '#e74c3c', marginBottom: 16 },
-  detailDescTitle: { fontSize: 16, fontWeight: '600', color: '#2c3e50', marginBottom: 6 },
-  detailDescription: { fontSize: 14, color: '#7f8c8d', lineHeight: 20 },
+  detailPrice: { fontSize: 24, fontWeight: 'bold', color: '#ee4d2d', marginBottom: 8 },
+  detailTitle: { fontSize: 18, fontWeight: '600', color: '#2c3e50', marginBottom: 8 },
+  detailCategory: { color: '#7f8c8d', fontSize: 13, marginBottom: 12 },
+  divider: { height: 1, backgroundColor: '#f1f2f6', marginVertical: 12 },
+  detailDescTitle: { fontSize: 15, fontWeight: '600', color: '#2c3e50', marginBottom: 6 },
+  detailDescription: { fontSize: 14, color: '#57606f', lineHeight: 22 },
+  
+  shopeeActionBar: { height: 54, flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f1f2f6' },
+  addToCartBtn: { flex: 1, backgroundColor: '#00bfa5', justifyContent: 'center', alignItems: 'center' },
+  addToCartText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+  buyNowBtn: { flex: 1, backgroundColor: '#ee4d2d', justifyContent: 'center', alignItems: 'center' },
+  buyNowText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+
+  cartCard: { flexDirection: 'row', backgroundColor: '#fff', padding: 12, borderRadius: 8, marginBottom: 8, alignItems: 'center', borderWidth: 1, borderColor: '#f1f2f6' },
+  cartItemImage: { width: 70, height: 70, borderRadius: 6, backgroundColor: '#f8f9fa' },
+  cartItemInfo: { flex: 1, marginLeft: 12 },
+  cartItemTitle: { fontSize: 15, fontWeight: '600', color: '#2c3e50' },
+  cartItemPrice: { fontSize: 14, color: '#ee4d2d', fontWeight: 'bold', marginTop: 4 },
+  cartItemQty: { fontSize: 12, color: '#7f8c8d', marginTop: 2 },
+
+  paymentSection: { backgroundColor: '#fff', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#f1f2f6' },
+  paymentSectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#2c3e50', marginBottom: 4 },
+  paymentSectionSubtitle: { fontSize: 12, color: '#7f8c8d', marginBottom: 16 },
+  paymentOptionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 14, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: '#f1f2f6' },
+  paymentOptionCardActive: { borderColor: '#ee4d2d', backgroundColor: '#fff5f2' },
+  paymentIcon: { fontSize: 24, marginRight: 12 },
+  paymentTextGroup: { flex: 1 },
+  paymentName: { fontSize: 14, fontWeight: 'bold', color: '#2c3e50' },
+  paymentDesc: { fontSize: 11, color: '#7f8c8d', marginTop: 2 },
+  radioCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#cbd5e1' },
+  radioCircleActive: { borderColor: '#ee4d2d', backgroundColor: '#ee4d2d' },
+  cancelPaymentBtn: { marginTop: 8, padding: 8, alignItems: 'center' },
+  cancelPaymentText: { color: '#7f8c8d', fontSize: 13, fontWeight: '600' },
+
+  checkoutFooter: { height: 60, backgroundColor: '#fff', flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f1f2f6', alignItems: 'center', paddingLeft: 16 },
+  totalContainer: { flex: 1, justifyContent: 'center' },
+  totalLabel: { fontSize: 12, color: '#7f8c8d' },
+  totalPriceText: { fontSize: 16, fontWeight: 'bold', color: '#ee4d2d' },
+  checkoutBtn: { backgroundColor: '#ee4d2d', height: '100%', width: 140, justifyContent: 'center', alignItems: 'center' },
+  checkoutBtnText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+
   tabBar: { height: 60, backgroundColor: '#fff', flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f1f2f6' },
   tabItem: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  activeTab: { borderTopWidth: 2, borderTopColor: '#2ecc71' },
+  activeTab: { borderTopWidth: 2, borderTopColor: '#ee4d2d' },
   tabText: { fontSize: 12, color: '#a4b0be' },
-  activeTabText: { color: '#2ecc71', fontWeight: 'bold' },
+  activeTabText: { color: '#ee4d2d', fontWeight: 'bold' },
 });
